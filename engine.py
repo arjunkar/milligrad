@@ -37,6 +37,8 @@ class Tensor:
                 else: # tensor was broadcasted to facilitate addition into out
                     diff = len(out.shape) - len(tensor.shape)
                     tensor.grad += np.sum(out.grad, axis=tuple(range(diff)))
+                    # tensor position receives gradients from all out positions
+                    # over which it was broadcasted
             shape_sum(self)
             shape_sum(other)
         out._backward = _backward
@@ -53,8 +55,34 @@ class Tensor:
             out = Tensor(np.matmul(self.data, other.data), (self, other))
 
         def _backward():
-            # Finish
-            return
+            if len(self.shape) == len(other.shape) and len(other.shape) < 2:
+                # valid for product of scalars or dot product of vectors
+                self.grad += other.data * out.grad
+                other.grad += self.data * out.grad
+            elif len(self.shape) == 0 and len(other.shape) > 0:
+                # out[x] = self*other[x]
+                # d(out[x])/d(self) = other[x]
+                # d(out[x])/d(other[y]) = self if x==y else 0
+                self.grad += np.sum(other.data * out.grad, axis=None)
+                other.grad += self.data * out.grad
+            elif len(self.shape) > 0 and len(other.shape) == 0:
+                self.grad += other.data * out.grad
+                other.grad += np.sum(self.data * out.grad, axis=None)
+            elif len(self.shape) > 1 and len(other.shape) == 1:
+                self.grad += np.expand_dims(out.grad, axis=-1) * np.expand_dims(other.data, axis=0)
+                other.grad += np.sum( 
+                    np.transpose(
+                        np.transpose(out.grad) * np.transpose(self.data)
+                        ), axis=tuple(range(len(self.shape)-1)) 
+                    )
+            elif len(self.shape) == 1 and len(other.shape) == 2:
+                # Finish
+            else: # At least two dimensions in both self and other
+                # out[i][j] = self[i][k]*other[k][j]
+                # d(out[i][j])/d(self[m][n]) = other[n][j] if i == m else 0
+                # d(out[i][j])/d(other[m][n]) = self[i][m] if j == n else 0
+                self.grad += np.matmul(out.grad, np.transpose(other.data, axes=(-1,-2)))
+                other.grad += np.matmul(np.transpose(self.data, axes=(-1,-2)), out.grad)
 
         out._backward = _backward
 
@@ -69,7 +97,7 @@ class Tensor:
 
         return out
 
-    def backward(self):
+    def backward(self, external_grads=None):
 
         # Constructing reverse topological order by depth first search
         topo = []
@@ -83,7 +111,7 @@ class Tensor:
         build_topo(self)
 
         # Initial gradient is dT/dT = 1, chain rule to generate children
-        self.grad = np.ones_like(self.data)
+        self.grad =  external_grads if external_grads is not None else np.ones_like(self.data)
         for v in reversed(topo):
             v._backward()
 
