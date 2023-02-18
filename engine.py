@@ -105,4 +105,4 @@ class Tensor:
             v._backward()
 
     def __repr__(self):
-        return f"Value(data={self.data}, grad={self.grad})"
+        return f"Tensor(data={self.data}, grad={self.grad})"
