@@ -36,7 +36,10 @@ class Tensor:
                     tensor.grad += out.grad
                 else: # tensor was broadcasted to facilitate addition into out
                     diff = len(out.shape) - len(tensor.shape)
-                    tensor.grad += np.sum(out.grad, axis=tuple(range(diff)))
+                    pos = [axis for axis,dim in 
+                        enumerate([1 for _ in range(diff)] + list(tensor.shape))
+                        if dim == 1]
+                    tensor.grad += np.sum(out.grad, axis=tuple(pos)).reshape(tensor.shape)
                     # tensor position receives gradients from all out positions
                     # over which it was broadcasted
             shape_sum(self)
@@ -45,45 +48,31 @@ class Tensor:
 
         return out
 
-    def __mul__(self, other):
-        # Sizes of self and other must allow matrix multiplication and broadcasting
+    def matmul(self, other):
+        # Sizes of self and other must allow matrix multiplication and broadcasting.
         other = other if isinstance(other, Tensor) else Tensor(other)
-        if len(self.shape) == 0 or len(other.shape) == 0:
-            # np.matmul is not defined on scalars, need to use *
-            out = Tensor(self.data * other.data, (self, other))
-        else:
-            out = Tensor(np.matmul(self.data, other.data), (self, other))
+        out = Tensor(np.matmul(self.data, other.data), (self, other))
 
         def _backward():
-            if len(self.shape) == len(other.shape) and len(other.shape) < 2:
-                # valid for product of scalars or dot product of vectors
+            if len(self.shape) == 1 and len(other.shape) == 1:
+                # dot product of vectors
                 self.grad += other.data * out.grad
                 other.grad += self.data * out.grad
-            elif len(self.shape) == 0 and len(other.shape) > 0:
-                # out[x] = self*other[x]
-                # d(out[x])/d(self) = other[x]
-                # d(out[x])/d(other[y]) = self if x==y else 0
-                self.grad += np.sum(other.data * out.grad, axis=None)
-                other.grad += self.data * out.grad
-            elif len(self.shape) > 0 and len(other.shape) == 0:
-                self.grad += other.data * out.grad
-                other.grad += np.sum(self.data * out.grad, axis=None)
             elif len(self.shape) > 1 and len(other.shape) == 1:
-                self.grad += np.expand_dims(out.grad, axis=-1) * np.expand_dims(other.data, axis=0)
-                other.grad += np.sum( 
-                    np.transpose(
-                        np.transpose(out.grad) * np.transpose(self.data)
-                        ), axis=tuple(range(len(self.shape)-1)) 
-                    )
-            elif len(self.shape) == 1 and len(other.shape) == 2:
-                # Finish
-            else: # At least two dimensions in both self and other
-                # out[i][j] = self[i][k]*other[k][j]
-                # d(out[i][j])/d(self[m][n]) = other[n][j] if i == m else 0
-                # d(out[i][j])/d(other[m][n]) = self[i][m] if j == n else 0
-                self.grad += np.matmul(out.grad, np.transpose(other.data, axes=(-1,-2)))
-                other.grad += np.matmul(np.transpose(self.data, axes=(-1,-2)), out.grad)
-
+                # matrix multiplying vector
+                self.grad += np.expand_dims(out.grad, axis=-1) * other.data
+                other.grad += (np.expand_dims(out.grad, axis=-1) * self.data
+                                ).reshape(-1,other.shape[0]).sum(axis=0)
+            elif len(self.shape) == 1 and len(other.shape) > 1:
+                # vector multiplying matrix from left
+                self.grad += (
+                    np.expand_dims(out.grad, axis=-1) * np.swapaxes(other.data,
+                    axis1=-1,axis2=-2)).reshape(-1,other.shape[-2]).sum(axis=0)
+                other.grad += np.expand_dims(out.grad, axis=-2) * np.expand_dims(self.data, axis=-1)
+            else: 
+                # matrix multiplication
+                self.grad += np.matmul(out.grad, np.swapaxes(other.data, axis1=-1, axis2=-2))
+                other.grad += np.matmul(np.swapaxes(self.data, axis1=-1,axis2=-2), out.grad)
         out._backward = _backward
 
         return out
@@ -97,7 +86,7 @@ class Tensor:
 
         return out
 
-    def backward(self, external_grads=None):
+    def backward(self, gradient=None):
 
         # Constructing reverse topological order by depth first search
         topo = []
@@ -111,7 +100,7 @@ class Tensor:
         build_topo(self)
 
         # Initial gradient is dT/dT = 1, chain rule to generate children
-        self.grad =  external_grads if external_grads is not None else np.ones_like(self.data)
+        self.grad =  gradient if gradient is not None else np.ones_like(self.data)
         for v in reversed(topo):
             v._backward()
 
