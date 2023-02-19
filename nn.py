@@ -20,7 +20,7 @@ from engine import Tensor
 class Module:
     def zero_grad(self):
         for p in self.parameters():
-            p.grad = 0
+            p.grad = np.zeros_like(p.grad)
 
     def parameters(self):
         return []
@@ -42,10 +42,36 @@ class Linear(Module):
     def parameters(self):
         return [self.W, self.b]
 
+class FeedForward(Module):
+    def __init__(self, dims) -> None:
+        super().__init__()
+        self.dims = dims
+        # dims is a list of integers [input_dim, hidden_1, ..., hidden_n, output_dim]
+        # where the last linear layer has no ReLU activation to facilitate cross entropy
+        self.layers = [Linear(dims[i],dims[i+1],activate=(i==len(dims)-2)) 
+                        for i in range(len(dims)-1)]
+        
+    def __call__(self, x: Tensor) -> Tensor:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+    def parameters(self):
+        params = []
+        for layer in self.layers:
+            params += layer.parameters()
+        return params
+
 class CrossEntropyLoss():
     def __init__(self) -> None:
         pass
 
-    def __call__(self, logits: Tensor, true_class):
-        # Finish
-        return
+    def __call__(self, logits: Tensor, true_classes: Tensor) -> Tensor:
+        # log-softmax calculation
+        exp = logits.exp()
+        norm = exp.sum(axis=-1).unsqueeze(axis=-1)
+        log_probs = (exp / norm).log()
+        # cross entropy calculation, expects [batch_dim, num_classes]
+        batches = logits.shape[0]
+        preds = log_probs[np.arange(batches), true_classes.data]
+        return -preds.sum() / batches

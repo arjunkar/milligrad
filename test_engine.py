@@ -455,6 +455,20 @@ def test_sum():
         torch.allclose(ta1.grad, torch.tensor(ea1.grad))
     )
 
+def test_unsqueeze():
+    a1 = np.single(np.random.random_sample(size=(2,3,4)))
+    grad = np.single(np.random.random_sample(size=(2,3,4,1)))
+
+    ta1 = torch.tensor(a1, requires_grad=True)
+    ea1 = engine.Tensor(a1)
+
+    (ta1.unsqueeze(-1)).backward(gradient=torch.tensor(grad))
+    (ea1.unsqueeze(axis=-1)).backward(gradient=grad)
+
+    assert(
+        torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+    )
+
 def test_relu():
     a1 = np.single(np.random.random_sample(size=(2,3,4)))
     grad = np.single(np.random.random_sample(size=(2,3,4)))

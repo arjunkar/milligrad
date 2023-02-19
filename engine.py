@@ -156,6 +156,15 @@ class Tensor:
 
         return out
 
+    def unsqueeze(self, axis=None):
+        out = Tensor(np.expand_dims(self.data, axis=axis), (self,))
+
+        def _backward():
+            self.grad += out.grad.reshape(self.data.shape)
+        out._backward = _backward
+
+        return out
+
     def relu(self):
         out = Tensor(np.maximum(self.data, 0.), (self,))
 
