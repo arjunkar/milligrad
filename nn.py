@@ -48,7 +48,7 @@ class FeedForward(Module):
         self.dims = dims
         # dims is a list of integers [input_dim, hidden_1, ..., hidden_n, output_dim]
         # where the last linear layer has no ReLU activation to facilitate cross entropy
-        self.layers = [Linear(dims[i],dims[i+1],activate=(i==len(dims)-2)) 
+        self.layers = [Linear(dims[i],dims[i+1],activate=(i < len(dims)-2)) 
                         for i in range(len(dims)-1)]
         
     def __call__(self, x: Tensor) -> Tensor:
