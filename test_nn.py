@@ -3,6 +3,20 @@ import numpy as np
 import engine
 import nn
 
+def test_feed_forward():
+    model = nn.FeedForward([4,3,5])
+    input = engine.Tensor(
+                np.single(np.random.random_sample(size=(2,4)))
+            )
+
+    assert(
+        model(input).shape == (2,5)
+    )
+
+    assert(
+        len(model.parameters()) == 4
+    )
+
 def test_cross_entropy():
     a1 = np.single(np.random.random_sample(size=(3,4)))
     c1 = np.array([2,1,3])
@@ -27,5 +41,3 @@ def test_cross_entropy():
     assert(
         torch.allclose(ta1.grad, torch.tensor(ea1.grad))
     )
-
-
