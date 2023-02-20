@@ -72,6 +72,6 @@ class CrossEntropyLoss():
         norm = exp.sum(axis=-1).unsqueeze(axis=-1)
         log_probs = (exp / norm).log()
         # cross entropy calculation, expects [batch_dim, num_classes]
-        batches = logits.shape[0]
-        preds = log_probs[np.arange(batches), true_classes.data]
-        return -preds.sum() / batches
+        batch_dim = logits.shape[0]
+        preds = log_probs[np.arange(batch_dim), true_classes.data]
+        return -preds.sum() / batch_dim
