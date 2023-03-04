@@ -425,6 +425,20 @@ def test_matmul():
         torch.allclose(tmat2.grad, torch.tensor(emat2.grad))
     )
 
+def test_max():
+    a1 = np.single(np.random.random_sample(size=(2,4)))
+    grad = np.single(np.random.random_sample(size=()))
+
+    ta1 = torch.tensor(a1, requires_grad=True)
+    (ta1.amax(axis=-1).sum()).backward(gradient=torch.tensor(grad))
+
+    ea1 = engine.Tensor(a1)
+    (ea1.max().sum()).backward(gradient=grad)
+
+    assert(
+        torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+    )
+
 def test_sum():
     a1 = np.single(np.random.random_sample(size=(2,3,4)))
     grad = np.single(np.random.random_sample(size=()))

@@ -68,7 +68,8 @@ class CrossEntropyLoss():
 
     def __call__(self, logits: Tensor, true_classes: Tensor) -> Tensor:
         # log-softmax calculation
-        exp = logits.exp()
+        exp = (logits - logits.max().unsqueeze(axis=-1)).exp()  
+        # see engine for max behavior
         norm = exp.sum(axis=-1).unsqueeze(axis=-1)
         log_probs = (exp / norm).log()
         # cross entropy calculation, expects [batch_dim, num_classes]

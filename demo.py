@@ -40,7 +40,15 @@ test_dataloader = loader.DataLoader(cons.test_images,
 
 model = nn.FeedForward([image_size**2, 512, 512, 10])
 loss_fn = nn.CrossEntropyLoss()
-optimizer = optim.SGD(model.parameters(), lr=5e-3)
+optimizer = optim.Adam(model.parameters(), lr=2e-4)
+# The learning rate must be chosen carefully here.
+# If it is too large, the model can jump to a point in
+# parameter space where it is too sure of a wrong answer
+# and the loss will be sent to infinity due to overflow, 
+# breaking the autograd engine.
+# For RMSprop and Adam, lr=1e-4 leads to good results in 5 epochs.
+# For SGD, lr=5e-3 is effective in 5 epochs.
+# All three situations lead to >80% test accuracy.
 
 def train(dataloader, model, loss_fn, optimizer):
     size = len(dataloader.data)

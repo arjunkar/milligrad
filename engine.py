@@ -145,6 +145,19 @@ class Tensor:
 
         return out
 
+    def max(self):
+        # Only supports max over the last axis of a 2-dimensional array, the
+        # specific use-case in batch classification [batch_dim, num_classes]
+        out = Tensor(self.data.max(axis=-1), (self,))
+
+        def _backward():
+            mask = np.zeros_like(self.data)
+            mask[np.arange(self.shape[0]), self.data.argmax(axis=-1)] = 1
+            self.grad += mask * np.expand_dims(out.grad, axis=-1)
+        out._backward = _backward
+
+        return out
+
     def sum(self, axis=None):
         broadcast_summable = np.sum(self.data, axis=axis, keepdims=True)
         out = Tensor(np.squeeze(broadcast_summable, axis=axis), (self,))
