@@ -6,12 +6,12 @@ Inspired by Karpathy's micrograd, much of the code is
 taken directly from that project.
 https://github.com/karpathy/micrograd
 
-We will support operations involved in a simple feedforward network
-that uses ReLU activation functions.
+Supports a variety of tensor operations involved in simple neural networks.
 This includes weight matrix multiplication, bias vector addition,
 and element-wise ReLU activation.
-Furthermore, we will implement a cross entropy loss which requires
+Furthermore, we will need a cross entropy loss which requires
 further support of indexing, arithmetic, axis sums, and exp and log functions.
+Various reshaping and reduction operations are also supported.
 """
 
 import numpy as np
@@ -22,6 +22,9 @@ class Tensor:
         self.data = data if isinstance(data, np.ndarray) else np.array(data, dtype='float32')
         self.grad = np.zeros_like(data, dtype='float32')
         self.shape = self.data.shape
+        # For the safe usage of as_strided, we include a strides attribute.
+        # Note that this works like numpy strides, not torch strides.
+        self.strides = self.data.strides
         # To construct the autograd graph, several internal
         # variables are needed.
         self._backward = lambda: None
@@ -169,11 +172,66 @@ class Tensor:
 
         return out
 
+    def as_strided(self, shape=None, strides=None):
+        # This operation, as advertised in the NumPy docs, is extremely
+        # dangerous compared to others.
+        # This is because it accesses memory in an unusual way, and proper
+        # usage generally requires an understanding of how memory will be accessed.
+        # The .copy() in out ensures that the new data is in a different memory location.
+        # In doing this, we have tried to hide the dangers in milligrad.
+        out = Tensor(
+            np.lib.stride_tricks.as_strided(self.data, shape=shape, strides=strides).copy(),
+            (self,)
+            )
+        
+        def _backward():
+            # Create a view into self.grad which matches the out shape.
+            # This allows us to access self.grad memory in a different way.
+            # Some distinct indices of this new view will actually represent the
+            # same memory location and index in self.grad.
+            self_grad_out_viewed = np.lib.stride_tricks.as_strided(
+                self.grad, shape=shape, strides=strides)
+            # The np.add.at function allows us to add out.grad serially into self.grad.
+            # This is not the primary purpose of np.add.at but it is an observed
+            # side-effect and probably necessary for the correctness of np.add.at.
+            # Even so, this line is very hacky and perhaps not guaranteed to succeed.
+            # Serial (or atomic) addition is necessary to ensure that all locations
+            # in the new view contribute grads to the memory location they came from
+            # without overwriting other simultaneous contributions.
+            # Because they are the same memory, adding into the out view of self.grad
+            # will also add to self.grad itself.
+            np.add.at(self_grad_out_viewed, None, out.grad)
+        out._backward = _backward
+
+        return out
+
+    def cat(self, other, axis=0):
+        # Works a bit differently than torch.cat.
+        # Implicit ordering torch.cat(self, other) by self.cat(other)
+        other = other if isinstance(other, Tensor) else Tensor(other)
+        out = Tensor(np.concatenate((self.data, other.data), axis=axis), (self,other))
+
+        def _backward():
+            self.grad += out.grad.take(indices=range(self.shape[axis]), axis=axis)
+            other.grad += out.grad.take(indices=range(self.shape[axis], out.shape[axis]), axis=axis)
+        out._backward = _backward
+
+        return out
+
+    def reshape(self, *shape):
+        out = Tensor(self.data.reshape(*shape), (self,))
+
+        def _backward():
+            self.grad += out.grad.reshape(self.shape)
+        out._backward = _backward
+    
+        return out
+
     def unsqueeze(self, axis=None):
         out = Tensor(np.expand_dims(self.data, axis=axis), (self,))
 
         def _backward():
-            self.grad += out.grad.reshape(self.data.shape)
+            self.grad += out.grad.reshape(self.shape)
         out._backward = _backward
 
         return out

@@ -469,6 +469,73 @@ def test_sum():
         torch.allclose(ta1.grad, torch.tensor(ea1.grad))
     )
 
+def test_as_strided():
+    # Because torch.as_strided does not work the same way as
+    # np.as_strided, we will have to test the engine manually without
+    # using torch's autograd engine.
+    extern = torch.randn(size=(5,4))
+    ea1 = engine.Tensor(torch.randn(size=(3,3)).numpy())
+    # ea1.strides = (12, 4) since np.float32 is 4 bytes
+    (ea1.as_strided(shape=(5,4), strides=(4,4))).backward(gradient=extern.numpy())
+
+    expected = torch.tensor(
+        [
+        [extern[0,0], extern[0,1] + extern[1,0], extern[0,2] + extern[1,1] + extern[2,0]],
+        [extern[0,3] + extern[1,2] + extern[2,1] + extern[3,0], 
+         extern[1,3] + extern[2,2] + extern[3,1] + extern[4,0], 
+         extern[2,3] + extern[3,2] + extern[4,1]],
+        [extern[3,3] + extern[4,2], extern[4,3], 0.]
+        ]
+    )
+
+    assert(
+        torch.allclose(expected, torch.tensor(ea1.grad))
+    )
+
+def test_cat():
+    ta1 = torch.randn(size=(2,3,4), requires_grad=True)
+    ta2 = torch.randn(size=(2,3,2), requires_grad=True)
+    ea1 = engine.Tensor(ta1.detach().numpy())
+    ea2 = engine.Tensor(ta2.detach().numpy())
+    extern = torch.randn(size=(2,3,6))
+
+    (torch.cat((ta1, ta2), dim=-1)).backward(gradient=extern)
+    (ea1.cat(ea2, axis=-1)).backward(gradient=extern.numpy())
+
+    assert(
+        torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+    )
+    assert(
+        torch.allclose(ta2.grad, torch.tensor(ea2.grad))
+    )
+
+def test_reshape():
+    # *arg test
+    ta1 = torch.randn(size=(2,3,4), requires_grad=True)
+    ea1 = engine.Tensor(ta1.detach().numpy())
+    extern = torch.randn(size=(8,3))
+
+    (ta1.reshape(8,3)).backward(gradient=extern)
+    (ea1.reshape(8,3)).backward(gradient=extern.numpy())
+
+    assert(
+        torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+    )
+
+    def test_sizes(shape1, shape2):
+        ta1 = torch.randn(size=shape1, requires_grad=True)
+        ea1 = engine.Tensor(ta1.detach().numpy())
+        extern = torch.randn(size=shape2)
+
+        (ta1.reshape(shape2)).backward(gradient=extern)
+        (ea1.reshape(shape2)).backward(gradient=extern.numpy())
+
+        assert(
+            torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+        )
+    test_sizes((2,3), (1,6))
+    test_sizes((2,8,4,5), (20,16))
+
 def test_unsqueeze():
     a1 = np.single(np.random.random_sample(size=(2,3,4)))
     grad = np.single(np.random.random_sample(size=(2,3,4,1)))

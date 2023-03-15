@@ -1,8 +1,6 @@
 """
-Implementation of various classes needed to define a
-simple feedforward neural network with a loss
-function that will be effective on MNIST or FashionMNIST
-classification problems.
+Implementation of a small neural network library
+powered by the milligrad engine.
 
 Built from the Tensor class which allows for
 training by backpropagation in the PyTorch style.
@@ -15,6 +13,7 @@ https://github.com/karpathy/micrograd
 
 import random
 import numpy as np
+import torch # Only imported for random tensor creation
 from engine import Tensor
 
 class Module:
@@ -62,6 +61,60 @@ class FeedForward(Module):
             params += layer.parameters()
         return params
 
+class ConstantPad2d(Module):
+    def __init__(self, padding, value) -> None:
+        super().__init__()
+        self.padding = padding
+        # padding is a 4-tuple (pad_left, pad_right, pad_top, pad_bottom)
+        self.value = value
+    
+    def __call__(self, x: Tensor) -> Tensor:
+        # Expects [batch_dim, num_channels, height_dim, width_dim]
+        # or [num_channels, height_dim, width_dim].
+        # Will pad the last two dimensions.
+        shape_l, shape_r = list(x.shape), list(x.shape)
+        shape_l[-1] = self.padding[0]
+        shape_r[-1] = self.padding[1]
+
+        shape_t, shape_b = list(x.shape), list(x.shape)
+        shape_t[-1] += self.padding[0] + self.padding[1]
+        shape_b[-1] += self.padding[0] + self.padding[1]
+        shape_t[-2] = self.padding[2]
+        shape_b[-2] = self.padding[3]
+
+        pad_l = Tensor(np.zeros(tuple(shape_l), dtype='float32') + self.value)
+        pad_r = Tensor(np.zeros(tuple(shape_r), dtype='float32') + self.value)
+        pad_t = Tensor(np.zeros(tuple(shape_t), dtype='float32') + self.value)
+        pad_b = Tensor(np.zeros(tuple(shape_b), dtype='float32') + self.value)
+
+        padded_lr = pad_l.cat(x.cat(pad_r, axis=-1), axis=-1)
+        padded_ud = pad_t.cat(padded_lr.cat(pad_b, axis=-2), axis=-2)
+
+        return padded_ud
+
+class Conv2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0) -> None:
+        # Only supports square kernels, strides, and paddings for now.
+        super().__init__()
+        self.stride = stride
+        self.padding = (padding, padding, padding, padding)
+        self.padder = ConstantPad2d(self.padding, 0)
+        initial_weights = torch.nn.init.uniform_(torch.empty(
+            size=(out_channels, in_channels, kernel_size, kernel_size)
+            ), -1/kernel_size, 1/kernel_size)
+        self.kernels = Tensor(initial_weights.numpy())
+        initial_bias = torch.nn.init.uniform_(torch.empty(
+            size=(out_channels,)
+            ), -1/out_channels**0.5, 1/out_channels**0.5)
+        self.b = Tensor(initial_bias.numpy())
+
+    def __call__(self, x: Tensor) -> Tensor:
+        x = self.padder(x)
+        # Finish using as_strided carefully
+
+    def parameters(self):
+        return [self.kernels, self.b]
+    
 class CrossEntropyLoss():
     def __init__(self) -> None:
         pass

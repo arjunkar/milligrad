@@ -17,6 +17,16 @@ def test_feed_forward():
         len(model.parameters()) == 4
     )
 
+def test_pad2d():
+    epadder = nn.ConstantPad2d((1,2,3,4), 2.1)
+    tpadder = torch.nn.ConstantPad2d((1,2,3,4), 2.1)
+    ta1 = torch.randn(size=(5,2,3,4))
+    ea1 = engine.Tensor(ta1.numpy())
+
+    assert(
+        torch.allclose(tpadder(ta1), torch.tensor(epadder(ea1).data))
+    )
+
 def test_cross_entropy():
     a1 = np.single(np.random.random_sample(size=(3,4)))
     c1 = np.array([2,1,3])
