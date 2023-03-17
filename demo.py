@@ -49,6 +49,7 @@ optimizer = optim.Adam(model.parameters(), lr=2e-4)
 # For RMSprop and Adam, lr=1e-4 leads to good results in 5 epochs.
 # For SGD, lr=5e-3 is effective in 5 epochs.
 # All three situations lead to >80% test accuracy.
+scheduler = optim.StepLR(optimizer=optimizer, step_size=1, gamma=0.1)
 
 def train(dataloader, model, loss_fn, optimizer):
     size = len(dataloader.data)
@@ -91,4 +92,5 @@ for t in range(epochs):
     print(f"Epoch {t+1}\n-------------------------------")
     train(train_dataloader, model, loss_fn, optimizer)
     test(test_dataloader, model, loss_fn)
+    scheduler.step()
 print("Done!")

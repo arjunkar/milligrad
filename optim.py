@@ -118,3 +118,16 @@ class Adam(Optimizer):
                 p.data -= step_size * self.m[i] / (v_hat**0.5 + self.eps)
 
             self.steps += 1
+
+class StepLR():
+    def __init__(self, optimizer, step_size, gamma=0.1) -> None:
+        self.optimizer = optimizer
+        self.step_size = step_size
+        self.gamma = gamma
+        self.epoch = 0
+        self.initial_lr = self.optimizer.lr
+
+    def step(self):
+        num = self.epoch // self.step_size
+        self.optimizer.lr = self.initial_lr * (self.gamma**num)
+        self.epoch += 1
