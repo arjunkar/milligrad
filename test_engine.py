@@ -350,94 +350,56 @@ def test_pow():
     )
 
 def test_matmul():
-    dot1 = np.single(np.random.random_sample(4))
-    dot2 = np.single(np.random.random_sample(4))
-    dotgrad = np.single(np.random.random_sample())
+    def test_shapes(shape1, shape2):
+        tm1 = torch.randn(size=shape1, requires_grad=True)
+        tm2 = torch.randn(size=shape2, requires_grad=True)
 
-    tdot1 = torch.tensor(dot1, requires_grad=True)
-    tdot2 = torch.tensor(dot2, requires_grad=True)
+        em1 = engine.Tensor(tm1.detach().numpy())
+        em2 = engine.Tensor(tm2.detach().numpy())
 
-    (tdot1.matmul(tdot2)).backward(gradient=torch.tensor(dotgrad))
+        extern = torch.randn_like(tm1.matmul(tm2))
 
-    edot1 = engine.Tensor(dot1)
-    edot2 = engine.Tensor(dot2)
+        tout = tm1.matmul(tm2)
+        eout = em1.matmul(em2)
 
-    (edot1.matmul(edot2)).backward(gradient=dotgrad)
+        assert(
+            torch.allclose(tout, torch.tensor(eout.data))
+        )
 
-    assert(
-        torch.allclose(tdot1.grad, torch.tensor(edot1.grad))
-    )
-    assert(
-        torch.allclose(tdot1.grad, torch.tensor(edot1.grad))
-    )
+        (tm1.matmul(tm2)).backward(gradient=extern)
+        (em1.matmul(em2)).backward(gradient=extern.numpy())
 
-    mat1 = np.single(np.random.random_sample(size=(2,3,4)))
-    matdot1 = np.single(np.random.random_sample(size=(2,3)))
-
-    tmat1 = torch.tensor(mat1, requires_grad=True)
-
-    (tmat1.matmul(tdot1)).backward(gradient=torch.tensor(matdot1))
-
-    emat1 = engine.Tensor(mat1)
-
-    (emat1.matmul(edot1)).backward(gradient=matdot1)
-
-    assert(
-        torch.allclose(tmat1.grad, torch.tensor(emat1.grad))
-    )
-    assert(
-        torch.allclose(tdot1.grad, torch.tensor(edot1.grad))
-    )
-
-    dot3 = np.single(np.random.random_sample(3))
-    matdot2 = np.single(np.random.random_sample(size=(2,4)))
-
-    tdot3 = torch.tensor(dot3, requires_grad=True)
-
-    (tdot3.matmul(tmat1)).backward(gradient=torch.tensor(matdot2))
-
-    edot3 = engine.Tensor(dot3)
-
-    (edot3.matmul(emat1)).backward(gradient=matdot2)
-
-    assert(
-        torch.allclose(tmat1.grad, torch.tensor(emat1.grad))
-    )
-    assert(
-        torch.allclose(tdot3.grad, torch.tensor(edot3.grad))
-    )
-
-    mat2 = np.single(np.random.random_sample(size=(2,4,5)))
-    matprod = np.single(np.random.random_sample(size=(2,3,5)))
-
-    tmat2 = torch.tensor(mat2, requires_grad=True)
-
-    (tmat1.matmul(tmat2)).backward(gradient=torch.tensor(matprod))
-
-    emat2 = engine.Tensor(mat2)
-
-    (emat1.matmul(emat2)).backward(gradient=matprod)
-
-    assert(
-        torch.allclose(tmat1.grad, torch.tensor(emat1.grad))
-    )
-    assert(
-        torch.allclose(tmat2.grad, torch.tensor(emat2.grad))
-    )
+        assert(
+            torch.allclose(tm1.grad, torch.tensor(em1.grad))
+        )
+        assert(
+            torch.allclose(tm2.grad, torch.tensor(em2.grad))
+        )
+    test_shapes( (4,) , (4,) )
+    test_shapes( (3,4) , (4,) )
+    test_shapes( (3,) , (3,4) )
+    test_shapes( (2,3) , (3,2) )
+    test_shapes( (3,2,3) , (3,2) )
+    test_shapes( (3,2) , (2,2,4) )
+    test_shapes( (2,3,2) , (2,2,4) )
+    test_shapes( (3, 2, 1, 4), (3, 1, 2, 4, 3) )
 
 def test_max():
-    a1 = np.single(np.random.random_sample(size=(2,4)))
-    grad = np.single(np.random.random_sample(size=()))
+    def test_shape_axis(shape, axis):
+        ta1 = torch.randn(size=shape, requires_grad=True)
+        ea1 = engine.Tensor(ta1.detach().numpy())
+        extern = torch.randn_like(ta1.max(dim=axis).values)
 
-    ta1 = torch.tensor(a1, requires_grad=True)
-    (ta1.amax(axis=-1).sum()).backward(gradient=torch.tensor(grad))
+        (ta1.max(dim=axis).values).backward(gradient=extern)
+        (ea1.max(axis=axis)).backward(gradient=extern.numpy())
 
-    ea1 = engine.Tensor(a1)
-    (ea1.max().sum()).backward(gradient=grad)
-
-    assert(
-        torch.allclose(ta1.grad, torch.tensor(ea1.grad))
-    )
+        assert(
+            torch.allclose(ta1.grad, torch.tensor(ea1.grad))
+        )
+    # torch cannot apply .max over multiple axes at once
+    test_shape_axis( (2,3,4) , 0 )
+    test_shape_axis( (2,3,4) , 1 )
+    test_shape_axis( (2,3,4) , 2 )
 
 def test_sum():
     a1 = np.single(np.random.random_sample(size=(2,3,4)))

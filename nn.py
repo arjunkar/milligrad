@@ -92,16 +92,34 @@ class ConstantPad2d(Module):
 
         return padded_ud
 
+def im2col(x: Tensor, K, s) -> Tensor:
+        # x, kernel_size, stride
+        (N, C, H, W) = x.shape
+        # Use as_strided to generate windows as flattened columns.
+        # This requires introducing two additional dimensions, which we flatten in the end.
+        (sN, sC, s0, s1) = x.strides
+        # Output height and width
+        Hp = 1 + (H-K)//s
+        Wp = 1 + (W-K)//s
+        rolled_out_shape = (N, C, K, K, Hp, Wp)
+        rolled_out_strides = (sN, sC, s0, s1, s*s0, s*s1)
+        out_view = x.as_strided(shape=rolled_out_shape, strides=rolled_out_strides)
+        return out_view.reshape(N, 1, C, K**2, Hp*Wp)
+
 class Conv2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0) -> None:
         # Only supports square kernels, strides, and paddings for now.
         super().__init__()
+        self.in_channels = in_channels # C
+        self.out_channels = out_channels # C'
+        self.kernel_size = kernel_size # K
         self.stride = stride
         self.padding = (padding, padding, padding, padding)
         self.padder = ConstantPad2d(self.padding, 0)
         initial_weights = torch.nn.init.uniform_(torch.empty(
             size=(out_channels, in_channels, kernel_size, kernel_size)
             ), -1/kernel_size, 1/kernel_size)
+        # kernels are [C', C, K, K]
         self.kernels = Tensor(initial_weights.numpy())
         initial_bias = torch.nn.init.uniform_(torch.empty(
             size=(out_channels,)
@@ -109,19 +127,87 @@ class Conv2d(Module):
         self.b = Tensor(initial_bias.numpy())
 
     def __call__(self, x: Tensor) -> Tensor:
+        # Expects [N,C,H,W] after padding, output e.g. [N, C', H', W']
         x = self.padder(x)
-        # Finish using as_strided carefully
+        (N, C, H, W) = x.shape
+        K = self.kernel_size
+        Cp = self.out_channels
+        s = self.stride
+        Hp = 1 + (H-K)//s
+        Wp = 1 + (W-K)//s
+        # out_view_cols is [N, 1, C, K**2, H'*W']
+        out_view_cols = im2col(x, K, s)
+        # vector_kernel is [1, C', C, 1, K**2]
+        vector_kernel = self.kernels.reshape(1, Cp, C, 1, K**2)
+        # matmul(vector_kernel, out_view_cols) size is [N, C', C, 1, H'*W']
+        mult_output = vector_kernel.matmul(out_view_cols)
+        in_channel_reduction = mult_output.sum(axis=2)
+        return in_channel_reduction.reshape(N, Cp, Hp, Wp) + self.b.reshape(1, Cp, 1, 1)
 
     def parameters(self):
         return [self.kernels, self.b]
+
+class MaxPool2d(Module):
+    def __init__(self, kernel_size, stride=1, padding=0) -> None:
+        super().__init__()
+        self.kernel_size = kernel_size
+        self.stride = stride
+        self.padding = (padding, padding, padding, padding)
+        self.padder = ConstantPad2d(self.padding, -np.inf)
+
+    def __call__(self, x: Tensor) -> Tensor:
+        x = self.padder(x)
+        (N, C, H, W) = x.shape
+        K = self.kernel_size
+        s = self.stride
+        Hp = 1 + (H-K)//s
+        Wp = 1 + (W-K)//s
+        # out_view_cols is [N, 1, C, K**2, H'*W']
+        out_view_cols = im2col(x, K, s)
+        max_output = out_view_cols.max(axis=-2) # Take max over flattened kernel
+        return max_output.reshape(N, C, Hp, Wp)
+
+class ReLU(Module):
+    def __init__(self) -> None:
+        super().__init__()
     
+    def __call__(self, x: Tensor) -> Tensor:
+        return x.relu()
+    
+class Flatten(Module):
+    def __init__(self) -> None:
+        super().__init__()
+        # Follows the NumPy flatten convention rather than torch.
+        # Flatten all dimensions except first.
+        # Expecting [batch_dim, *]
+
+    def __call__(self, x: Tensor) -> Tensor:
+        n = x.shape[0]
+        return x.reshape(n, -1)
+
+class Sequential(Module):
+    def __init__(self, layers) -> None:
+        super().__init__()
+        self.layers = layers
+
+    def __call__(self, x: Tensor) -> Tensor:
+        for layer in self.layers:
+            x = layer(x)
+        return x
+    
+    def parameters(self):
+        params = []
+        for layer in self.layers:
+            params += layer.parameters()
+        return params
+
 class CrossEntropyLoss():
     def __init__(self) -> None:
         pass
 
     def __call__(self, logits: Tensor, true_classes: Tensor) -> Tensor:
         # log-softmax calculation
-        exp = (logits - logits.max().unsqueeze(axis=-1)).exp()  
+        exp = (logits - logits.max(axis=-1).unsqueeze(axis=-1)).exp()  
         # see engine for max behavior
         norm = exp.sum(axis=-1).unsqueeze(axis=-1)
         log_probs = (exp / norm).log()

@@ -142,21 +142,38 @@ class Tensor:
                 other.grad += np.expand_dims(out.grad, axis=-2) * np.expand_dims(self.data, axis=-1)
             else: 
                 # matrix multiplication
-                self.grad += np.matmul(out.grad, np.swapaxes(other.data, axis1=-1, axis2=-2))
-                other.grad += np.matmul(np.swapaxes(self.data, axis1=-1,axis2=-2), out.grad)
+                self_len = len(self.shape)
+                other_len = len(other.shape)
+                if self_len > other_len:
+                    extended = [1 for _ in range(self_len - other_len)] + list(other.shape)
+                    other.grad = other.grad.reshape(tuple(extended))
+                if other_len > self_len:
+                    extended = [1 for _ in range(other_len - self_len)] + list(self.shape)
+                    self.grad = self.grad.reshape(tuple(extended))
+                self_unit_axes = tuple([ind for ind, dim in 
+                                        enumerate(self.grad.shape) if dim == 1])
+                self.grad += np.matmul(
+                    out.grad, np.swapaxes(other.data, axis1=-1, axis2=-2)
+                    ).sum(axis=self_unit_axes, keepdims=True)
+                other_unit_axes = tuple([ind for ind, dim in 
+                                         enumerate(other.grad.shape) if dim == 1])
+                other.grad += np.matmul(
+                    np.swapaxes(self.data, axis1=-1,axis2=-2), out.grad
+                    ).sum(axis=other_unit_axes, keepdims=True)
+                self.grad = self.grad.reshape(self.shape)
+                other.grad = other.grad.reshape(other.shape)
         out._backward = _backward
 
         return out
 
-    def max(self):
-        # Only supports max over the last axis of a 2-dimensional array, the
-        # specific use-case in batch classification [batch_dim, num_classes]
-        out = Tensor(self.data.max(axis=-1), (self,))
+    def max(self, axis):
+        out = Tensor(self.data.max(axis=axis), (self,))
 
         def _backward():
-            mask = np.zeros_like(self.data)
-            mask[np.arange(self.shape[0]), self.data.argmax(axis=-1)] = 1
-            self.grad += mask * np.expand_dims(out.grad, axis=-1)
+            mask = (np.expand_dims(out.data, axis=axis) == self.data) # Broadcast over maxed axes
+            totals = np.expand_dims(mask.sum(axis=axis), axis=axis) # Count duplicate maximum elements
+            # Insert average grad in all maximum positions
+            self.grad += mask * np.expand_dims(out.grad, axis=axis) / totals
         out._backward = _backward
 
         return out
@@ -278,8 +295,10 @@ class Tensor:
                 topo.append(v)
         build_topo(self)
 
+        if isinstance(gradient, Tensor):
+            gradient = gradient.data
         # Initial gradient is dT/dT = 1, chain rule to generate children
-        self.grad =  gradient if gradient is not None else np.ones_like(self.data)
+        self.grad = gradient if gradient is not None else np.ones_like(self.data)
         for v in reversed(topo):
             v._backward()
 

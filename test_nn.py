@@ -27,6 +27,65 @@ def test_pad2d():
         torch.allclose(tpadder(ta1), torch.tensor(epadder(ea1).data))
     )
 
+def test_conv2d():
+    def test_fwd_bwd(in_c, out_c, kern, stride, pad):
+        tconv = torch.nn.Conv2d(in_channels=in_c, out_channels=out_c, kernel_size=kern, 
+                                stride=stride, padding=pad)
+        econv = nn.Conv2d(in_channels=in_c, out_channels=out_c, kernel_size=kern, 
+                          stride=stride, padding=pad)
+        for tp, ep in zip(tconv.parameters(), econv.parameters()):
+            ep.data = tp.data.numpy()
+        tx = torch.randn(size=(10, in_c, 2*kern*stride+3, 2*kern*stride+5), 
+                         requires_grad=True)
+        ex = engine.Tensor(tx.detach().numpy())
+        eout = econv(ex)
+        tout = tconv(tx)
+        assert(
+            torch.allclose(tout, torch.tensor(eout.data), atol=1e-5)
+            # Due to floating point error, we do not trust this equivalence
+            # beyond 1e-6 or 1e-7 tolerance for larger input sizes.
+        )
+
+        extern = torch.randn_like(tout)
+        tout.backward(gradient=extern)
+        eout.backward(gradient=extern.numpy())
+        assert(
+            torch.allclose(tx.grad, torch.tensor(ex.grad), atol=1e-5)
+        )
+        for tp, ep in zip(tconv.parameters(), econv.parameters()):
+            assert(
+                torch.allclose(tp.grad, torch.tensor(ep.grad), atol=1e-5)
+            )
+
+    test_fwd_bwd(1, 1, 2, 2, 1)
+    test_fwd_bwd(2, 1, 2, 1, 2)
+    test_fwd_bwd(2, 3, 3, 3, 3)
+    
+def test_maxpool2d():
+    def test_fwd_bwd(in_c, kern, stride, pad):
+        tpool = torch.nn.MaxPool2d(kernel_size=kern, stride=stride, padding=pad)
+        epool = nn.MaxPool2d(kernel_size=kern, stride=stride, padding=pad)
+        
+        tx = torch.randn(size=(10, in_c, 2*kern*stride+3, 2*kern*stride+5), 
+                         requires_grad=True)
+        ex = engine.Tensor(tx.detach().numpy())
+        eout = epool(ex)
+        tout = tpool(tx)
+        assert(
+            torch.allclose(tout, torch.tensor(eout.data))
+        )
+
+        extern = torch.randn_like(tout)
+        tout.backward(gradient=extern)
+        eout.backward(gradient=extern.numpy())
+        assert(
+            torch.allclose(tx.grad, torch.tensor(ex.grad), atol=1e-5)
+        )
+
+    test_fwd_bwd(1, 2, 2, 1)
+    test_fwd_bwd(2, 2, 1, 1)
+    test_fwd_bwd(2, 4, 3, 2)
+
 def test_cross_entropy():
     a1 = np.single(np.random.random_sample(size=(3,4)))
     c1 = np.array([2,1,3])
